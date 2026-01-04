@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Merge Absensi Sekolah</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Sortable/1.15.0/Sortable.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+    <style>
+        .drag-ghost { opacity: 0.3; background: #e0e7ff; border: 2px dashed #4f46e5; }
+        .loader-spin { animation: spin 1s linear infinite; }
+        @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+        .scanning-glow { animation: glow 1.5s ease-in-out infinite; border-color: #6366f1; }
+        @keyframes glow { 0%, 100% { box-shadow: 0 0 5px #6366f1; } 50% { box-shadow: 0 0 20px #6366f1; } }
+    </style>
+</head>
+<body class="bg-slate-50 min-h-screen font-sans">
+
+    <div class="max-w-5xl mx-auto py-10 px-4">
+        <header class="text-center mb-10">
+            <h1 class="text-3xl font-black text-slate-800 uppercase tracking-tight">Tools Penggabung Absensi format JPG/JPEG</h1>
+            <p class="text-slate-500 mt-2">Drag and Drop File kedalam kotak dibawah ini</p>
+        </header>
+
+        <div id="dropZone" class="bg-white border-2 border-dashed border-slate-300 rounded-3xl p-12 text-center transition-all cursor-pointer shadow-sm hover:border-indigo-500 group">
+            <input type="file" id="imageInput" accept="image/jpeg, image/jpg" multiple class="hidden">
+            <div class="space-y-4">
+                <div class="text-6xl group-hover:scale-110 transition-transform">📸</div>
+                <p class="text-xl font-bold text-slate-700">Unggah Foto Absensi</p>
+                <p class="text-slate-400 text-sm italic">Sistem akan melakukan penguatan kontras otomatis untuk membaca nama sekolah</p>
+            </div>
+        </div>
+
+        <div id="editorSection" class="hidden mt-8 space-y-6">
+            <div class="bg-white p-6 rounded-2xl shadow-xl border border-indigo-100">
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6 items-end">
+                    <div>
+                        <label class="block text-xs font-bold text-indigo-600 uppercase mb-2 flex items-center gap-2">
+                            <span id="scanStatusIcon">🔍</span> Nama Sekolah (Hasil Deteksi AI)
+                        </label>
+                        <input type="text" id="schoolHeader" placeholder="Menganalisis teks..." 
+                            class="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 focus:ring-2 focus:ring-indigo-500 outline-none font-bold text-lg transition-all">
+                    </div>
+                    <div class="flex gap-2">
+                        <select id="mergeMode" class="flex-1 bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 outline-none">
+                            <option value="vertical">↕ Vertikal</option>
+                            <option value="horizontal">↔ Horizontal</option>
+                        </select>
+                        <button id="mergeBtn" class="bg-indigo-600 hover:bg-indigo-700 text-white px-8 py-3 rounded-xl font-bold shadow-lg transition-all flex items-center gap-2">
+                            <span>💾</span> SIMPAN
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <div id="sortableList" class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4"></div>
+        </div>
+    </div>
+
+    <canvas id="mainCanvas" class="hidden"></canvas>
+    <canvas id="processCanvas" class="hidden"></canvas>
+
+    <script>
+        const imageInput = document.getElementById('imageInput');
+        const dropZone = document.getElementById('dropZone');
+        const sortableList = document.getElementById('sortableList');
+        const editorSection = document.getElementById('editorSection');
+        const schoolHeader = document.getElementById('schoolHeader');
+        const mergeBtn = document.getElementById('mergeBtn');
+        const processCanvas = document.getElementById('processCanvas');
+        const pCtx = processCanvas.getContext('2d');
+
+        new Sortable(sortableList, { animation: 200, ghostClass: 'drag-ghost' });
+
+        dropZone.onclick = () => imageInput.click();
+        dropZone.ondragover = (e) => { e.preventDefault(); dropZone.classList.add('scanning-glow'); };
+        dropZone.ondragleave = () => dropZone.classList.remove('scanning-glow');
+        dropZone.ondrop = (e) => { e.preventDefault(); handleFiles(e.dataTransfer.files); };
+        imageInput.onchange = (e) => handleFiles(e.target.files);
+
+        async function handleFiles(files) {
+            const validFiles = Array.from(files);
+            if (validFiles.length === 0) return;
+            editorSection.classList.remove('hidden');
+            
+            // Fokus OCR pada file pertama yang diupload
+            processAndScan(validFiles[0]);
+
+            validFiles.forEach(file => {
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    const div = document.createElement('div');
+                    div.className = 'image-card relative bg-white p-2 rounded-xl shadow border cursor-move';
+                    div.innerHTML = `<img src="${e.target.result}" class="w-full h-40 object-cover rounded-lg"><button class="absolute -top-2 -right-2 bg-red-500 text-white w-6 h-6 rounded-full font-bold shadow" onclick="this.parentElement.remove()">✕</button>`;
+                    sortableList.appendChild(div);
+                };
+                reader.readAsDataURL(file);
+            });
+        }
+
+        async function processAndScan(file) {
+            schoolHeader.classList.add('scanning-glow');
+            document.getElementById('scanStatusIcon').innerHTML = '<span class="loader-spin inline-block">⚙️</span>';
+            
+            const img = new Image();
+            img.src = URL.createObjectURL(file);
+            await img.decode();
+
+            // PRE-PROCESSING: Meningkatkan Kontras & Grayscale
+            // Kita coba memutar gambar jika tinggi > lebar (mendeteksi portrait miring)
+            const shouldRotate = img.height < img.width; 
+            if(shouldRotate) {
+                processCanvas.width = img.height;
+                processCanvas.height = img.width;
+                pCtx.translate(processCanvas.width/2, processCanvas.height/2);
+                pCtx.rotate(270 * Math.PI / 180);
+                pCtx.drawImage(img, -img.width/2, -img.height/2);
+            } else {
+                processCanvas.width = img.width;
+                processCanvas.height = img.height;
+                pCtx.drawImage(img, 0, 0);
+            }
+
+            // Terapkan filter Grayscale dan Kontras via CSS Canvas
+            pCtx.filter = 'grayscale(1) contrast(2) brightness(1.2)';
+            pCtx.drawImage(processCanvas, 0, 0);
+
+            try {
+                const worker = await Tesseract.createWorker('ind');
+                const { data: { text } } = await worker.recognize(processCanvas.toDataURL('image/jpeg', 1.0));
+                console.log("Raw Text:", text);
+
+                // Ekstraksi Pintar
+                const lines = text.split('\n').map(l => l.trim().toUpperCase());
+                let result = "";
+
+                // Cari baris setelah FORM VERIFIKASI atau yang mengandung kata kunci sekolah
+                const formIdx = lines.findIndex(l => l.includes("FORM VERIFIKASI") || l.includes("KOMITMEN"));
+                if (formIdx !== -1 && lines[formIdx+1]) {
+                    result = lines[formIdx+1];
+                } else {
+                    result = lines.find(l => /SMAN|SMKN|SMA|SMK|MAN|MTS|MIN|SDN|SMPN|MA |MI |MTS /i.test(l));
+                }
+
+                if(result) {
+                    // Membersihkan teks dari simbol aneh
+                    schoolHeader.value = result.replace(/[^A-Z0-9 ]/g, "").replace(/\s+/g, " ").trim();
+                } else {
+                    schoolHeader.placeholder = "Gagal deteksi, silakan isi manual";
+                }
+
+                await worker.terminate();
+            } catch (e) {
+                schoolHeader.placeholder = "Error memproses gambar";
+            } finally {
+                schoolHeader.classList.remove('scanning-glow');
+                document.getElementById('scanStatusIcon').innerHTML = '✅';
+            }
+        }
+
+        mergeBtn.onclick = async () => {
+            const imgs = Array.from(sortableList.querySelectorAll('img'));
+            if (imgs.length < 1) return;
+            mergeBtn.innerText = "PROSES...";
+            
+            const loaded = await Promise.all(imgs.map(i => {
+                return new Promise(r => { const img = new Image(); img.src = i.src; img.onload = () => r(img); });
+            }));
+
+            const canvas = document.getElementById('mainCanvas');
+            const ctx = canvas.getContext('2d');
+            const isVert = document.getElementById('mergeMode').value === 'vertical';
+
+            let w = isVert ? Math.max(...loaded.map(i=>i.width)) : loaded.reduce((s,i)=>s+i.width,0);
+            let h = isVert ? loaded.reduce((s,i)=>s+i.height,0) : Math.max(...loaded.map(i=>i.height));
+
+            canvas.width = w; canvas.height = h;
+            ctx.fillStyle = "white"; ctx.fillRect(0,0,w,h);
+
+            let x=0, y=0;
+            loaded.forEach(img => {
+                ctx.drawImage(img, x, y);
+                if(isVert) y += img.height; else x += img.width;
+            });
+
+            const link = document.createElement('a');
+            link.download = (schoolHeader.value || "Gabungan") + ".jpg";
+            link.href = canvas.toDataURL('image/jpeg', 0.9);
+            link.click();
+            mergeBtn.innerText = "SIMPAN";
+        };
+    </script>
+</body>
+</html>
