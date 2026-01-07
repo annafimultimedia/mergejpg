@@ -3,12 +3,12 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Aplikasi Penggabung Absensi</title>
+    <title>Absensi Merger - Kamera & DragDrop</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/Sortable/1.15.0/Sortable.min.js"></script>
     <style>
         .drag-ghost { opacity: 0.3; background: #e0e7ff; border: 2px dashed #4f46e5; }
-        .drop-active { border-color: #4f46e5 !important; background-color: #eef2ff !important; transform: scale(1.01); }
+        .drop-active { border-color: #4f46e5 !important; background-color: #f8faff !important; transform: scale(1.01); }
         .image-card:hover .remove-btn { opacity: 1; }
     </style>
 </head>
@@ -16,22 +16,25 @@
 
     <div class="max-w-4xl mx-auto py-10 px-4">
         <header class="text-center mb-8">
-            <h1 class="text-3xl font-black text-slate-800 uppercase tracking-tight">Aplikasi Penggabung Absensi</h1>
-            <p class="text-slate-500 mt-1 text-sm font-bold text-indigo-600">IMPORT ATAU TARIK FOTO , ISI NAMA SEKOLAH SESUAI ABSENSI , GABUNG DAN SIMPAN</p>
+            <h1 class="text-3xl font-black text-slate-800 uppercase tracking-tight">Penyatu Absensi Sekolah</h1>
+            <p class="text-slate-500 mt-1 text-sm font-bold text-indigo-600">Ambil Foto Langsung | Max 500KB</p>
         </header>
 
-        <div id="dropZone" class="bg-white border-2 border-dashed border-slate-300 rounded-3xl p-10 text-center cursor-pointer transition-all mb-8 shadow-sm hover:border-indigo-400">
-            <input type="file" id="imageInput" accept="image/jpeg, image/jpg" multiple class="hidden">
-            <div class="space-y-3 pointer-events-none">
-                <div class="text-5xl">📥</div>
-                <div>
-                    <p class="text-lg font-bold text-slate-700">Tarik Semua Foto Absensi ke Sini</p>
-                    <p class="text-slate-400 text-xs italic">Atau klik untuk memilih file dari galeri/folder</p>
-                </div>
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
+            <div id="dropZone" class="md:col-span-2 bg-white border-2 border-dashed border-slate-300 rounded-3xl p-8 text-center cursor-pointer transition-all shadow-sm hover:border-indigo-400 flex flex-col justify-center items-center">
+                <input type="file" id="imageInput" accept="image/jpeg, image/jpg" multiple class="hidden">
+                <div class="text-4xl mb-2">📥</div>
+                <p class="text-sm font-bold text-slate-700">Tarik Foto atau Klik</p>
+            </div>
+
+            <div id="cameraBtn" class="bg-indigo-600 rounded-3xl p-8 text-center cursor-pointer transition-all shadow-md hover:bg-indigo-700 flex flex-col justify-center items-center text-white">
+                <input type="file" id="cameraInput" accept="image/*" capture="environment" class="hidden">
+                <div class="text-4xl mb-2">📸</div>
+                <p class="text-sm font-bold">Ambil Foto Kamera</p>
             </div>
         </div>
 
-        <div id="controlSection" class="bg-white p-6 rounded-2xl shadow-md border border-slate-200 mb-8">
+        <div class="bg-white p-6 rounded-2xl shadow-md border border-slate-200 mb-8">
             <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
                 <div>
                     <label class="block text-[10px] font-black text-slate-400 uppercase mb-2 tracking-widest">Nama Sekolah / Judul File</label>
@@ -48,19 +51,19 @@
             </div>
             
             <div class="flex flex-col md:flex-row gap-3">
-                <button id="mergeBtn" class="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white px-8 py-4 rounded-xl font-black shadow-lg shadow-indigo-100 transition-all flex items-center justify-center gap-2 text-lg">
+                <button id="mergeBtn" class="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white px-8 py-4 rounded-xl font-black shadow-lg transition-all flex items-center justify-center gap-2 text-lg">
                     <span>💾</span> GABUNG & SIMPAN (< 500KB)
                 </button>
-                <button id="resetBtn" class="bg-rose-50 hover:bg-rose-100 text-rose-600 px-6 py-4 rounded-xl font-bold transition-all flex items-center justify-center gap-2 border border-rose-200">
+                <button id="resetBtn" class="bg-rose-50 hover:bg-rose-100 text-rose-600 px-6 py-4 rounded-xl font-bold transition-all border border-rose-200 flex items-center justify-center gap-2">
                     <span>🗑️</span> RESET
                 </button>
             </div>
-            <p id="statusMsg" class="text-center text-xs font-bold text-indigo-600 mt-4 hidden animate-pulse"></p>
+            <p id="statusMsg" class="text-center text-xs font-bold text-indigo-600 mt-4 hidden"></p>
         </div>
 
         <div class="mb-4 flex items-center justify-between px-2">
             <h2 class="text-sm font-bold text-slate-700 uppercase tracking-wider">Urutan Halaman</h2>
-            <span class="text-[10px] text-slate-400 italic">Geser foto untuk ubah urutan</span>
+            <span class="text-[10px] text-slate-400 italic font-medium">Klik (X) untuk hapus per lembar</span>
         </div>
         <div id="sortableList" class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-12"></div>
     </div>
@@ -69,29 +72,31 @@
 
     <script>
         const imageInput = document.getElementById('imageInput');
+        const cameraInput = document.getElementById('cameraInput');
         const dropZone = document.getElementById('dropZone');
+        const cameraBtn = document.getElementById('cameraBtn');
         const sortableList = document.getElementById('sortableList');
         const schoolHeader = document.getElementById('schoolHeader');
         const mergeBtn = document.getElementById('mergeBtn');
         const resetBtn = document.getElementById('resetBtn');
         const statusMsg = document.getElementById('statusMsg');
 
-        // AKTIFKAN SORTABLE (DRAG AND DROP URUTAN KARTU)
         new Sortable(sortableList, { animation: 150, ghostClass: 'drag-ghost' });
 
-        // LOGIKA DRAG AND DROP FILE UPLOAD
+        // LOGIKA KAMERA
+        cameraBtn.onclick = () => cameraInput.click();
+        cameraInput.onchange = (e) => handleFiles(e.target.files);
+
+        // LOGIKA DRAG & DROP
         ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(name => {
             dropZone.addEventListener(name, (e) => { e.preventDefault(); e.stopPropagation(); }, false);
         });
-
         ['dragenter', 'dragover'].forEach(name => {
             dropZone.addEventListener(name, () => dropZone.classList.add('drop-active'), false);
         });
-
         ['dragleave', 'drop'].forEach(name => {
             dropZone.addEventListener(name, () => dropZone.classList.remove('drop-active'), false);
         });
-
         dropZone.addEventListener('drop', (e) => handleFiles(e.dataTransfer.files), false);
         dropZone.onclick = () => imageInput.click();
         imageInput.onchange = (e) => handleFiles(e.target.files);
@@ -105,7 +110,7 @@
                     div.className = 'image-card relative bg-white p-2 rounded-xl shadow-sm border border-slate-200 cursor-move';
                     div.innerHTML = `
                         <img src="${e.target.result}" class="w-full h-32 object-cover rounded-lg">
-                        <button class="remove-btn absolute -top-2 -right-2 bg-rose-500 text-white w-6 h-6 rounded-full font-bold shadow-md opacity-0 transition-opacity flex items-center justify-center text-[10px]" onclick="this.parentElement.remove()">✕</button>
+                        <button class="remove-btn absolute -top-2 -right-2 bg-rose-500 text-white w-6 h-6 rounded-full font-bold shadow flex items-center justify-center text-[10px]" onclick="this.parentElement.remove()">✕</button>
                     `;
                     sortableList.appendChild(div);
                 };
@@ -113,25 +118,24 @@
             });
         }
 
-        // TOMBOL RESET
         resetBtn.onclick = () => {
             if(confirm("Hapus semua foto dan reset judul?")) {
                 sortableList.innerHTML = "";
                 schoolHeader.value = "";
                 statusMsg.classList.add('hidden');
                 imageInput.value = "";
+                cameraInput.value = "";
             }
         };
 
-        // PROSES GABUNG & KOMPRESI TARGET 500KB
         mergeBtn.onclick = async () => {
             const imgs = Array.from(sortableList.querySelectorAll('img'));
-            if (imgs.length < 1) return alert("Belum ada foto yang dipilih!");
-            if (!schoolHeader.value.trim()) return alert("Harap isi nama sekolah!");
+            if (imgs.length < 1) return alert("Belum ada foto!");
+            if (!schoolHeader.value.trim()) return alert("Isi judul file!");
 
             mergeBtn.disabled = true;
             statusMsg.classList.remove('hidden');
-            statusMsg.innerText = "⏳ Sedang memproses kompresi...";
+            statusMsg.innerText = "⏳ Memproses kompresi...";
 
             const loaded = await Promise.all(imgs.map(i => {
                 return new Promise(r => { const img = new Image(); img.src = i.src; img.onload = () => r(img); });
@@ -165,11 +169,11 @@
 
                 finalDataUrl = canvas.toDataURL('image/jpeg', 0.7);
                 fileSize = Math.round(finalDataUrl.length * 0.75);
-                scaleFactor -= 0.05; 
+                scaleFactor -= 0.1; 
             }
 
             const fileSizeKb = Math.round(fileSize / 1024);
-            statusMsg.innerText = `✅ Berhasil! Ukuran: ${fileSizeKb}Kb`;
+            statusMsg.innerText = `✅ Tersimpan! Ukuran: ${fileSizeKb}Kb`;
 
             const link = document.createElement('a');
             link.download = schoolHeader.value.trim() + ".jpg";
